@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g. 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build (${{ matrix.rid }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [ win-x64, linux-x64, osx-x64, osx-arm64 ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: |
+          dotnet publish \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:Version=${{ github.event.inputs.version }} \
+            --output ./publish/${{ matrix.rid }}
+
+      - name: Archive artifact
+        run: |
+          cd publish/${{ matrix.rid }}
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            zip ../../OpenWebUiToSillyTavernImporter-${{ matrix.rid }}.zip *
+          else
+            tar -czf ../../OpenWebUiToSillyTavernImporter-${{ matrix.rid }}.tar.gz *
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: |
+            OpenWebUiToSillyTavernImporter-${{ matrix.rid }}.zip
+            OpenWebUiToSillyTavernImporter-${{ matrix.rid }}.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          name: v${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: artifacts/*
